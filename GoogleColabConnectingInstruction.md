@@ -1,4 +1,5 @@
-# Please run the code below and copy the ip and paste it into jupiter
+# Please run the code below
+# then copy the resulted ip and paste it into jupiter notebook in vscode
 
 # Install jupyterlab and ngrok
 !pip install jupyterlab pyngrok -q
