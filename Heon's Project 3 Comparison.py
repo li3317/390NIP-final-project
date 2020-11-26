@@ -133,6 +133,9 @@ def styleTransfer(cData, sData, tData):
     contentGenOutput = contentLayer[2, :, :, :]
     loss += CONTENT_WEIGHT * contentLoss(contentOutput,contentGenOutput)   #DONE: implement content_loss * alpha part.
 
+    print("contentLayer: ")
+    print(contentLayer)
+
     print("   Calculating style loss.")
     for layerName in styleLayerNames:
         styleLayer = outputDict[layerName] # Reference: For code above for content loss

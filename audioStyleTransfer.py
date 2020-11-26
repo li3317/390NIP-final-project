@@ -161,3 +161,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+""" Reference For Future Use:
+    https://github.com/mozilla/DeepSpeech#getting-the-pre-trained-model for english speech to text model pb file
+        * wget -O - https://github.com/mozilla/DeepSpeech/releases/download/v0.3.0/deepspeech-0.3.0-models.tar.gz | tar xvfz -
+    
+"""
