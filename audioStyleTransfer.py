@@ -4,14 +4,15 @@ from numpy import savetxt
 from numpy import loadtxt
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras import layers
 import tensorflow.keras.backend as K
 import librosa
 import librosa.display
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
-# import random
+import random
 # from scipy.optimize import fmin_l_bfgs_b   # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin_l_bfgs_b.html
-# from tensorflow.keras.applications import vgg19
+from tensorflow.keras.applications import vgg19
 import warnings
 
 random.seed(1618)
@@ -34,7 +35,19 @@ STYLE_CSV_EXIST = False
 NNFT = 512        #Default Value Currently
 WIN_LENGTH = NNFT #Default Value Currently
 HOP_LENGTH = WIN_LENGTH // 4
-#=========================<Pipeline Functions>==================================
+N_FILTERS = 4096
+
+CONTENT_WEIGHT = 1e-6    # Alpha weight.
+STYLE_WEIGHT = 3.5e-5      # Beta weight.
+
+tf.compat.v1.disable_eager_execution()
+
+#=============================<Helper Fuctions>=================================
+
+def gramMatrix(x):
+    # features = K.batch_flatten(K.permute_dimensions(x, (2, 0, 1)))
+    gram = np.matmul(x.T, x) / N_SAMPLES
+    return gram
 
 def displayAudioSpectrum(frequencyMagnitude, samplingRate, fileName):
     fig, ax = plt.subplots()
@@ -42,6 +55,28 @@ def displayAudioSpectrum(frequencyMagnitude, samplingRate, fileName):
     ax.set(title = "Content: "+fileName)
     fig.savefig("drive/My Drive/NIP Final Project Audio/"+fileName+".jpg")
     print("Spectrum of "+fileName+" saved")
+
+#========================<Loss Function Builder Functions>======================
+
+def styleLoss(style_gram, g_gram, N_CHANNELS, N_SAMPLES):
+    return K.sum(K.square(tf.nn.l2_loss(g_gram - style_gram)) / (4. * (N_FILTERS ** 2) * (N_CHANNELS * N_SAMPLES) ** 2))   #DONE: implement styleLoss, change numFilter to correct variable.
+    # Reference: Slide 8
+
+def contentLoss(content, gen):
+    return K.sum(K.square(tf.nn.l2_loss(gen - content)))
+
+
+# def totalLoss(x): # designed to keep the generated image locally coherent. Reference: https://keras.io/examples/generative/neural_style_transfer/
+#     a = K.square(x[:, : CONTENT_IMG_H - 1, : CONTENT_IMG_W - 1, :] - x[:, 1 : , : CONTENT_IMG_W - 1, :])
+#     b = K.square(x[:, : CONTENT_IMG_H - 1, : CONTENT_IMG_W - 1, :] - x[:, : CONTENT_IMG_W - 1, 1 : , :])
+#     return K.sum(K.pow(a+b,1.25))   #DONE: implement total varient loss.
+
+
+
+
+#=========================<Pipeline Functions>==================================
+
+
 
 def getRawData():
     global CONTENT_CSV_EXIST
@@ -141,10 +176,83 @@ def styleTransfer(cData, sData, cSamplingRate, sSamplingRate):
     cTensor = K.variable(cData)
     sTensor = K.variable(sData)
     gTensor = K.placeholder(shape=cTensor.shape)
+    N_CHANNELS = cTensor.shape[0]
+    N_SAMPLES  = cTensor.shape[1]
+    sTensor = sTensor[:N_CHANNELS, :N_SAMPLES] # cut the size of style to fit the size of content
     print("Shape of Content Tensor: %s." % str(cTensor.shape))
     print("Shape of Style Tensor: %s." % str(sTensor.shape))
     print("Shape of Generating Tensor: %s." % str(gTensor.shape))
+    print("N_CHANNELS: "+str(N_CHANNELS))
+    print("N_SAMPLES: "+str(N_SAMPLES))
+    
+    """ 
+    Reference: https://www.tensorflow.org/guide/effective_tf2
+    tf.nn network creation:
+        all previous tf.nn layer can be inserted into next layer as input
 
+    Reference: https://www.tensorflow.org/api_docs/python/tf/nn/conv2d
+    tf.nn.conv2d layer:
+        Parameters: 
+            input: A Tensor of type (half, bfloat16, float32, float64)
+            filters: A Tensor of same type as input, shape (filter_height, filter_width, in_channels, out_channels)
+            strides: list of ints, the stride of the sliding window for each dimension of input
+            padding: "SAME" or "VALID"
+        Example:
+            x_in = np.array([[
+                [[2], [1], [2], [0], [1]],
+                [[1], [3], [2], [2], [3]],
+                [[1], [1], [3], [3], [0]],
+                [[2], [2], [0], [1], [1]],
+                [[0], [0], [3], [1], [2]], ]])
+            kernel_in = np.array([
+                [ [[2, 0.1]], [[3, 0.2]] ],
+                [ [[0, 0.3]],[[1, 0.4]] ], ])
+            x = tf.constant(x_in, dtype=tf.float32)
+            kernel = tf.constant(kernel_in, dtype=tf.float32)
+            tf.nn.conv2d(x, kernel, strides=[1, 1, 1, 1], padding='VALID')
+    """
+
+    kernel_in = np.random.randn(1, 11, N_CHANNELS, N_FILTERS)
+    kernel = tf.constant(kernel_in, dtype='float32')
+    sess = tf.compat.v1.Session()
+    with sess.as_default():
+      cNet = tf.nn.conv2d(cData.T[None,None,:,:].astype(np.float32), kernel, strides=[1, 1, 1, 1], padding="VALID")
+      cNet = tf.nn.relu(cNet)
+      cEval = cNet.eval()
+
+      sNet = tf.nn.conv2d(sData.T[None,None,:,:].astype(np.float32), kernel, strides=[1, 1, 1, 1], padding="VALID")
+      sNet = tf.nn.relu(sNet)
+      sEval = sNet.eval()
+
+      gNet = tf.nn.conv2d(np.random.randn(1,1,N_SAMPLES,N_CHANNELS).astype(np.float32), kernel, strides=[1, 1, 1, 1], padding="VALID")
+      gNet = tf.nn.relu(gNet)
+
+      style_features = np.reshape(sEval, (-1, N_FILTERS))
+      g_features = np.reshape(gNet.eval(), (-1, N_FILTERS))
+      
+      opt = tf.optimizers.Adam(learning_rate=0.02, beta_1=0.99, epsilon=1e-1)
+      x = tf.Variable(np.zeros((1,1, N_SAMPLES, N_CHANNELS)))
+
+      print("gram calculation complete")
+      content_loss = CONTENT_WEIGHT * contentLoss(cEval,gNet.eval())
+      print("content loss calculation complete")
+      style_loss = STYLE_WEIGHT * styleLoss(gramMatrix(style_features),gramMatrix(g_features),N_CHANNELS,N_SAMPLES)
+      print("style loss calculation complete")
+      total_loss =  tf.cast(style_loss,content_loss.dtype) + content_loss # Reference: https://stackoverflow.com/questions/35725513/tensorflow-cast-a-float64-tensor-to-float32
+      print("loss calculation complete")
+      print(total_loss.eval())
+           
+
+
+
+      opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+    
+      sess.run(tf.compat.v1.initialize_all_variables())
+      print('Started optimization.')
+      opt.minimize(sess, x)
+      print('Final loss:')
+      print(total_loss.eval())
+      result = x.eval()
 
 
 #=========================<Main>================================================
@@ -156,15 +264,8 @@ def main():
     sData = preprocessData(raw[1])   # Style image.     #TODO: Preprocess Data of Style Audio 
     styleTransfer(cData, sData, raw[0][1], raw[1][1])
     print("Done. Goodbye.")
-
+    
 
 
 if __name__ == "__main__":
     main()
-
-
-""" Reference For Future Use:
-    https://github.com/mozilla/DeepSpeech#getting-the-pre-trained-model for english speech to text model pb file
-        * wget -O - https://github.com/mozilla/DeepSpeech/releases/download/v0.3.0/deepspeech-0.3.0-models.tar.gz | tar xvfz -
-    
-"""
