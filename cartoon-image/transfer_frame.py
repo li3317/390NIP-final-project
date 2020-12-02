@@ -5,6 +5,7 @@
 
 import tensorflow as tf
 import regex as re
+from pathlib import Path
 
 tf.compat.v1.disable_eager_execution()
 
@@ -20,6 +21,8 @@ from tensorflow.keras.preprocessing.image import load_img, img_to_array, save_im
 import warnings
 import time
 
+
+
 random.seed(1618)
 np.random.seed(1618)
 #tf.set_random_seed(1618)   # Uncomment for TF1.
@@ -28,7 +31,7 @@ tf.random.set_seed(1618)
 #tf.logging.set_verbosity(tf.logging.ERROR)   # Uncomment for TF1.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-STYLE_IMG_PATH = "../../../../000373_1.jpg"     #TODO: Add this.
+STYLE_IMG_PATH = "../style.jpg"     #TODO: Add this.
 TRANSFER_ROUNDS = 20 # 100
 
 TOTAL_WEIGHT = 1e-6 #1.0
@@ -195,7 +198,7 @@ def style_transfer():
         #TODO: perform gradient descent using fmin_l_bfgs_b.
         start_time = time.time()
         x, tLoss, info = fmin_l_bfgs_b(lossAndGrads.loss, x.flatten(), fprime=lossAndGrads.grads, maxfun=20, maxiter=20)
-        print("      Loss: %f." % tLoss)
+        # print("      Loss: %f." % tLoss)
         # save current generated image
         img = deprocessImage(x.copy())
         # img = deprocessImage(x)
@@ -207,7 +210,7 @@ def style_transfer():
 
         end_time = time.time()
         
-        print('Iteration %d completed in %ds' % (i, end_time - start_time))
+        # print('Step %d completed in %ds' % (i, end_time - start_time))
     print("   Transfer complete.")
 #=========================<Main>================================================
 
@@ -226,7 +229,7 @@ def main():
       filename = str(path)
       regex = re.compile(r'\d+')
       num = int(regex.findall(filename)[0])
-      if num >= 0 and num <= 10: # can modify this to get number of images to transfer
+      if num >= 446 and num <= 520: # can modify this to get number of images to transfer
         currentPath = filename
         print(filename)
         style_transfer() # comment this to check all images to be processed 
