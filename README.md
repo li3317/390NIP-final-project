@@ -1,7 +1,7 @@
 # 390NIP-final-project
 CS390 final project
 
-
+![SC2 Video](files/result.gif)
 ## Pipeline Overview 
 ![alt text](files/overview.png "Title")
 ---------
