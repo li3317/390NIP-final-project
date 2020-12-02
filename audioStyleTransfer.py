@@ -208,7 +208,7 @@ def main():
     a_content, a_style, N_SAMPLES, sr = preprocessing(content_video, style_video)
     x = styleTransfer(a_content, a_style, N_SAMPLES)
     
-    OUTPUT_FILENAME='orginal.wav'
+    OUTPUT_FILENAME='output.wav'
     spectrum2wav(x[0,0], sr, OUTPUT_FILENAME)
     print("audio conversion complete")
     plt_spectrum(a_content, 'Content_spectrum')
