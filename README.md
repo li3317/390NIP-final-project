@@ -24,30 +24,31 @@
 ## Speech Style Transfer
 ___________
 #### PHONETIC POSTERIORGRAMS FOR MANY-TO-ONE VOICE CONVERSIONWITHOUT PARALLEL DATA TRAINING
-1. Tried to Implement  Paper
-    https://www.researchgate.net/publication/307434911_Phonetic_posteriorgrams_for_many-to-one_voice_conversion_without_parallel_data_training
-2. The model is seperated into two seperated trainable network
+1. Tried to Implement Paper https://www.researchgate.net/publication/307434911_Phonetic_posteriorgrams_for_many-to-one_voice_conversion_without_parallel_data_training
+2. The model is separated into two separate trainable network
 3. First network is trained to output phoneme and duration graph (PPG) for certain frequency
 4. First network convert audio file into amplitude vs time graph to process the input with the timit dataset
 5. Second network insert its input style audio file to first trained network to get PPG
 6. Second network get relationship between calculated PPG and MCEPs
 7. The whole model insert content audio file to first network to get PPG
-8. The whole model insert recieved PGG to Second Network to get MCEP correspond to it perform conversion.
+8. The whole model insert received PGG to Second Network to get the corresponding MCEP to perform conversion.
 9. Combine Calculated MCEP and content audio file's MFCCs to create new audio file
 10. However, this implementation stopped at research stage because structure of model is too complicated and TIMIT Dataset cost hug money to using it
+
 -----------
 #### Voice style transfer with random CNN
 ##### Progress
 1. Found a project with simpler concept (similar to image style transfer) with no dataset requirement
 https://github.com/mazzzystar/randomCNN-voice-transfer
-2. Decided to do tranlation from pytorch to tensorflow
+2. Decided to do translation from pytorch to tensorflow
 3. Finished Creating Pipeline, Loading, Preprocessing, Saving the Processed Data
 4. Tried to find pretrained model for audio as a replacement for vgg in image style transfer
 5. Failed to get speech related pretrained model like wavenet, ctc
-6. Tried to use VGG instead by converting the spectrum graph (frequency vs amplitude) image insead of raw data
+6. Tried to use VGG instead by converting the spectrum graph (frequency vs amplitude) image instead of raw data
 7. Failed due to input shape limitation of vgg
 8. Successfully got content, style, total loss value in tensorflow 1, but failed to get gradient
 9. Decided to do translation with tensorflow 2 instead.
+
 
 ##### Concept
 1. Convert both audio files to Amplitude and Sampling Rate
