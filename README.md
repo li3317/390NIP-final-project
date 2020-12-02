@@ -1,8 +1,9 @@
 # 390NIP-final-project
-results:
+[results: ](result/edge+elonvoice.mp4)
 
 ![SC2 Video](files/result.gif)
 ![SC2 Video](files/edge_result.gif)
+
 ## Pipeline Overview 
 ![alt text](files/overview.png "Title")
 ---------
