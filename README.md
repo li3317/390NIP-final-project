@@ -1,5 +1,6 @@
 # 390NIP-final-project
 results:
+
 ![SC2 Video](files/result.gif)
 ![SC2 Video](files/edge_result.gif)
 ## Pipeline Overview 
