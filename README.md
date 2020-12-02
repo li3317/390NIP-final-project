@@ -1,6 +1,24 @@
 # 390NIP-final-project
 CS390 final project
 
+
+## Pipeline Overview 
+![alt text](files/overview.png "Title")
+---------
+## Cartoonization(Style Transfer) :
+* Preprocessing :
+  * Select a suitable style picture (that resembles the original video colorwise) 
+  * Capture from video frame by frame and crop out the area where the face is
+  * Smoothen the edges of the style image
+* Style transfer :
+  * Transfer style onto each frame using a pre-trained VGG19 model 
+* Extract edges from frames :
+  * Run the canny edge detector to extract the outline of the frames 
+  * Remove the background and make transparent 
+  * Layer the outline image onto the cartoon frame
+
+
+
 ## Speech Style Transfer
 ___________
 #### PHONETIC POSTERIORGRAMS FOR MANY-TO-ONE VOICE CONVERSIONWITHOUT PARALLEL DATA TRAINING
