@@ -1,5 +1,5 @@
 # 390NIP-final-project
-CS390 final project
+result:
 
 ![SC2 Video](files/result.gif)
 ## Pipeline Overview 
