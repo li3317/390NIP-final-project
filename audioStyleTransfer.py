@@ -1,271 +1,221 @@
 import os
 import numpy as np
-from numpy import savetxt
-from numpy import loadtxt
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
 import tensorflow.keras.backend as K
-import librosa
-import librosa.display
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 import random
-# from scipy.optimize import fmin_l_bfgs_b   # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin_l_bfgs_b.html
-from tensorflow.keras.applications import vgg19
+import scipy
+import imageio
+from scipy.optimize import fmin_l_bfgs_b   # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin_l_bfgs_b.html
 import warnings
+# tf.compat.v1.disable_eager_execution()
+
+import tensorflow as tf
+from tensorflow import keras
+
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+
+import librosa
+import numpy as np
+
+import time
+import math
+import argparse
+
+import sys
+from moviepy.editor import VideoFileClip
 
 random.seed(1618)
 np.random.seed(1618)
-# tf.set_random_seed(1618)   # Uncomment for TF1.
+#tf.set_random_seed(1618)   # Uncomment for TF1.
 tf.random.set_seed(1618)
 
-# tf.logging.set_verbosity(tf.logging.ERROR)   # Uncomment for TF1.
+#tf.logging.set_verbosity(tf.logging.ERROR)   # Uncomment for TF1.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-PROJECT_PATH = "drive/My Drive/NIP Final Project Audio/"
-CONTENT_FILE_NAME = "AliceInWonderLandShort.wav"             #Reference: https://www.youtube.com/watch?v=uUcJSTpMavA
-CONTENT_AUD_PATH  = PROJECT_PATH+CONTENT_FILE_NAME           #DONE: Add Content Path. 
-STYLE_FILE_NAME   = "TheLittlePrinceShort.wav"               #Reference: https://www.youtube.com/watch?v=yWQo_AAHDUA
-STYLE_AUD_PATH    = PROJECT_PATH+STYLE_FILE_NAME             #DONE: Add Style Path. 
 
-CONTENT_CSV_EXIST = False
-STYLE_CSV_EXIST = False
+# coefficient of content and style
+style_param = 2
+content_param = 1e-3
 
-NNFT = 512        #Default Value Currently
-WIN_LENGTH = NNFT #Default Value Currently
-HOP_LENGTH = WIN_LENGTH // 4
-N_FILTERS = 4096
+num_epochs = 20
 
-CONTENT_WEIGHT = 1e-6    # Alpha weight.
-STYLE_WEIGHT = 3.5e-5      # Beta weight.
+N_FFT = 512
+N_CHANNELS = round(1 + N_FFT/2)
+OUT_CHANNELS = 32
+N_FILTERS  = 4096
+N_SAMPLES = N_FILTERS/2
 
-tf.compat.v1.disable_eager_execution()
+content_video = "drive/MyDrive/NIP Final Project Audio/Chess club.mp4"
+style_video   = "drive/MyDrive/NIP Final Project Audio/Musk.mp3" 
 
+duration = 0
 #=============================<Helper Fuctions>=================================
 
-def gramMatrix(x):
-    # features = K.batch_flatten(K.permute_dimensions(x, (2, 0, 1)))
-    gram = np.matmul(x.T, x) / N_SAMPLES
-    return gram
+def mp4_to_wav(file_path, duration_limit):
+    video = VideoFileClip(file_path)
+    audio = video.audio
+    if duration_limit != 0:
+      audio.duration = duration_limit
+    audio.write_audiofile(os.path.splitext(file_path)[0]+".wav")
+    return video.duration 
 
-def displayAudioSpectrum(frequencyMagnitude, samplingRate, fileName):
-    fig, ax = plt.subplots()
-    librosa.display.specshow(librosa.power_to_db(frequencyMagnitude, ref=np.max), sr=samplingRate, hop_length = HOP_LENGTH, y_axis='mel', x_axis='time', cmap = cm.jet)
-    ax.set(title = "Content: "+fileName)
-    fig.savefig("drive/My Drive/NIP Final Project Audio/"+fileName+".jpg")
-    print("Spectrum of "+fileName+" saved")
+def preprocessing(content, style):
+    global duration, N_SAMPLES
+    duration = mp4_to_wav(content, duration)
+    
+    y, sr = librosa.load(content)
+    y_shifted = librosa.effects.pitch_shift(y, sr, n_steps=-3)
+    librosa.output.write_wav(os.path.splitext(content)[0]+"Pitch.wav", y_shifted, sr)
+
+    a_content, sr = wav2spectrum(os.path.splitext(content)[0]+"Pitch.wav")
+    if os.path.splitext(style)[1] == ".mp4":
+      mp4_to_wav(style, duration)
+      a_style, sr = wav2spectrum(os.path.splitext(style)[0]+".wav")
+    else:
+      a_style, sr = wav2spectrum(style)
+    N_SAMPLES = min(a_content.shape[1],a_style.shape[1])
+    a_style = a_style[:N_CHANNELS, :N_SAMPLES]
+    return a_content, a_style, N_SAMPLES, sr
+
+def wav2spectrum(file):
+    filename = os.path.splitext(file)[0]
+    print("filename: "+filename)
+    try:
+      S = np.load(filename+'.npy')
+      srFile = open(filename+'.txt', 'r')
+      sr = int(srFile.readline())
+      srFile.close()
+      STYLE_CSV_EXIST = True
+      print(filename+" data exist")
+    except IOError:
+      x, sr = librosa.load(file)
+      S = librosa.stft(x, N_FFT)
+      p = np.angle(S)
+      S = np.log1p(np.abs(S))
+      print(filename+" wav2spectrum calculation")
+      np.save(filename+'.npy',S)
+      srFile = open(filename+'.txt', 'w')
+      srFile.write('{}'.format(sr))
+      srFile.close()
+      print("wav2spectrum result saved for "+filename)
+    return S, sr
+
+
+def spectrum2wav(spectrum, sr, outfile):
+    a = np.exp(spectrum) - 1
+    p = 2 * np.pi * np.random.random_sample(spectrum.shape) - np.pi
+    for i in range(50):
+        S = a * np.exp(1j * p)
+        x = librosa.istft(S)
+        p = np.angle(librosa.stft(x, N_FFT))
+    librosa.output.write_wav(outfile, x, sr)
+
+def plt_spectrum(content, name):
+    plt.figure(figsize=(5, 5))
+    plt.subplot(1, 1, 1)
+    plt.imsave( name+'.png', content[:400, :])
 
 #========================<Loss Function Builder Functions>======================
+def gramMatrix(x):
+    m, n_C, n_H, n_W = x.shape
+    x_unrolled = tf.reshape(x,(m * n_C * n_H, n_W))
+    g = tf.matmul(x_unrolled,tf.transpose(x_unrolled)) / 244
+    return g
+    
+def compute_content_loss(a_C, a_G):
+    content_loss = tf.nn.l2_loss(a_C - a_G)
+    return content_loss
 
-def styleLoss(style_gram, g_gram, N_CHANNELS, N_SAMPLES):
-    return K.sum(K.square(tf.nn.l2_loss(g_gram - style_gram)) / (4. * (N_FILTERS ** 2) * (N_CHANNELS * N_SAMPLES) ** 2))   #DONE: implement styleLoss, change numFilter to correct variable.
-    # Reference: Slide 8
+def compute_layer_style_loss(a_S, a_G):
+    style_gram = gramMatrix(a_S)
+    gram = gramMatrix(a_G)
+    style_loss = 4 * tf.nn.l2_loss(gram - style_gram)
+    return style_loss
 
-def contentLoss(content, gen):
-    return K.sum(K.square(tf.nn.l2_loss(gen - content)))
-
-
-# def totalLoss(x): # designed to keep the generated image locally coherent. Reference: https://keras.io/examples/generative/neural_style_transfer/
-#     a = K.square(x[:, : CONTENT_IMG_H - 1, : CONTENT_IMG_W - 1, :] - x[:, 1 : , : CONTENT_IMG_W - 1, :])
-#     b = K.square(x[:, : CONTENT_IMG_H - 1, : CONTENT_IMG_W - 1, :] - x[:, : CONTENT_IMG_W - 1, 1 : , :])
-#     return K.sum(K.pow(a+b,1.25))   #DONE: implement total varient loss.
-
-
+def total_loss(a_C, a_S, a_G):
+    content_loss = content_param * compute_content_loss(a_C, a_G)
+    style_loss = style_param * compute_layer_style_loss(a_S, a_G)
+    return content_loss + style_loss
 
 
 #=========================<Pipeline Functions>==================================
+class Evaluator(object):
+    def __init__(self, kFunction):
+        self.kFunction = kFunction
+        
+    def loss(self, x):
+        self.loss_, self.grads_ = self.kFunction([x.reshape((1,1, N_CHANNELS, round(x.shape[0]/N_CHANNELS)))])
+        return self.loss_.astype(np.float64)
+
+    def grads(self, x):
+        return self.grads_.flatten().astype(np.float64)
+
+class MyModel(tf.keras.Model):
+
+  def __init__(self):
+    super(MyModel, self).__init__()
+    self.conv2D = tf.keras.layers.Conv2D(filters=N_SAMPLES, kernel_size=1, strides=(1, 1), padding='VALID', activation='selu')
+    self.relu = tf.keras.layers.LeakyReLU(alpha=0.2)
+
+  def call(self, inputs):
+    x1 = self.conv2D(inputs)
+    x1 = self.relu(x1)
+    return x1 + inputs
+
+def CNN():
+    model = tf.keras.models.Sequential()
+    model.add(MyModel())
+    return model
+
+def styleTransfer(a_content, a_style, N_SAMPLES):
+    print("   Building transfer model.")
+    a_C = tf.convert_to_tensor(a_content)[None, None, :, :]
+    a_S = tf.convert_to_tensor(a_style)[None, None, :, :]
+    a_G = K.placeholder(a_C.shape)
 
 
-
-def getRawData():
-    global CONTENT_CSV_EXIST
-    global STYLE_CSV_EXIST
-    print("   Loading Audios.")
-    print("      Content audio URL:  \"%s\"." % CONTENT_AUD_PATH)
-    print("      Style audio URL:    \"%s\"." % STYLE_AUD_PATH)
-    # librosa libray loads amplitude and sampling rate (HZ) of the audio file (amplitude vs time)
-    try:
-        cFrequencyMagnitude = np.load(CONTENT_AUD_PATH+'FrequencyMagnitude.npy')
-        cSrFile = open(CONTENT_AUD_PATH+'SamplingRate.txt', 'r')
-        cSamplingRate = int(cSrFile.readline())
-        cSrFile.close()
-        CONTENT_CSV_EXIST = True
-        print("Content Raw Data Exist")
-    except IOError:
-        cAmplitude, cSamplingRate = librosa.load(CONTENT_AUD_PATH) 
-
-    try:
-        sFrequencyMagnitude = np.load(STYLE_AUD_PATH+'FrequencyMagnitude.npy')
-        sSrFile = open(STYLE_AUD_PATH+'SamplingRate.txt', 'r')
-        sSamplingRate = int(sSrFile.readline())
-        sSrFile.close()
-        STYLE_CSV_EXIST = True
-        print("Style Raw Data Exist")
-    except IOError:
-        sAmplitude, sSamplingRate = librosa.load(STYLE_AUD_PATH)
-        print("      Audios have been loaded.")
-
-    """ Reference: http://man.hubwiz.com/docset/LibROSA.docset/Contents/Resources/Documents/generated/librosa.core.stft.html
-    frequency conversion from (amplitude vs time) to (power vs frequency)
-
-    function stft returns a complex-valued matrix D such that:
-        np.abs(D[f, t]) is the magnitude of frequency bin f at frame t
-        np.angle(D[f, t]) is the phase of frequency bin f at frame t
-
-    Parameters: 
-        n_fft:
-            recommended value is 512, 
-            replaces all the period larger than win_length to zero paddings to improve frequency resolution by TTF 
-        hop_length:
-            defaultly equal to win_length // 4,
-            actual length without overlaping in the window
-        win_length:
-            defaultly equal to n_fft,
-            the length of window each ttf will be done
-    """
-    if not (CONTENT_CSV_EXIST):
-        cSTFT = librosa.stft(cAmplitude, NNFT, HOP_LENGTH, WIN_LENGTH)
-        print("      STFT Conversion for Cotent Completed.")
-        cFrequencyMagnitude = np.abs(cSTFT)
-        np.save(CONTENT_AUD_PATH+'FrequencyMagnitude.npy', cFrequencyMagnitude)
-        cSrFile = open(CONTENT_AUD_PATH+'SamplingRate.txt','w')  # w : writing mode  /  r : reading mode  /  a  :  appending mode 
-        cSrFile.write('{}'.format(cSamplingRate))   
-        cSrFile.close() #Reference: https://stackoverflow.com/questions/36900443/how-to-format-the-file-output-python-3
-        print("Raw Data files for Cotent saved")
-    if not (STYLE_CSV_EXIST): 
-        sSTFT = librosa.stft(sAmplitude, NNFT, HOP_LENGTH, WIN_LENGTH)
-        print("      STFT Conversion for Style Completed.")
-        sFrequencyMagnitude = np.abs(sSTFT)
-        np.save(STYLE_AUD_PATH+'FrequencyMagnitude.npy',sFrequencyMagnitude)
-        sSrFile = open(STYLE_AUD_PATH+'SamplingRate.txt','w')  # w : writing mode  /  r : reading mode  /  a  :  appending mode
-        sSrFile.write('{}'.format(sSamplingRate))
-        sSrFile.close()
-        print("Raw Data files for Style saved")
-
-    """ reference: https://librosa.org/doc/main/auto_examples/plot_display.html
-        Display audio spectrum
-    """
-    if not (CONTENT_CSV_EXIST):
-        displayAudioSpectrum(cFrequencyMagnitude, cSamplingRate, CONTENT_FILE_NAME)
-    if not (STYLE_CSV_EXIST): 
-        displayAudioSpectrum(sFrequencyMagnitude, sSamplingRate, STYLE_FILE_NAME)
-
-    """
-        check if data is loaded correctly
-    """
-    # print("Content Sampling Rate: " + str(cSamplingRate))
-    # print("Content Frequncy Magnitude: ")
-    # print(cFrequencyMagnitude)
-    # print("Style Sampling Rate: " + str(sSamplingRate))
-    # print("Style Frequncy Magnitude: ")
-    # print(sFrequencyMagnitude)
-
-    return ((cFrequencyMagnitude, cSamplingRate), (sFrequencyMagnitude, sSamplingRate))
-
-
-
-
-def preprocessData(raw):
-    frequencyMagnitude, samplingRate = raw
-    return np.log1p(frequencyMagnitude) # use log recieve numerical stability
+    model = CNN()
     
-
-
-def styleTransfer(cData, sData, cSamplingRate, sSamplingRate):
-    cTensor = K.variable(cData)
-    sTensor = K.variable(sData)
-    gTensor = K.placeholder(shape=cTensor.shape)
-    N_CHANNELS = cTensor.shape[0]
-    N_SAMPLES  = cTensor.shape[1]
-    sTensor = sTensor[:N_CHANNELS, :N_SAMPLES] # cut the size of style to fit the size of content
-    print("Shape of Content Tensor: %s." % str(cTensor.shape))
-    print("Shape of Style Tensor: %s." % str(sTensor.shape))
-    print("Shape of Generating Tensor: %s." % str(gTensor.shape))
-    print("N_CHANNELS: "+str(N_CHANNELS))
-    print("N_SAMPLES: "+str(N_SAMPLES))
+    content_features = model(K.variable(a_C))
+    style_features = model(K.variable(a_S))
+    gen_features = model(a_G)
     
-    """ 
-    Reference: https://www.tensorflow.org/guide/effective_tf2
-    tf.nn network creation:
-        all previous tf.nn layer can be inserted into next layer as input
+    # Get the loss
+    loss = total_loss(content_features, style_features, gen_features)
 
-    Reference: https://www.tensorflow.org/api_docs/python/tf/nn/conv2d
-    tf.nn.conv2d layer:
-        Parameters: 
-            input: A Tensor of type (half, bfloat16, float32, float64)
-            filters: A Tensor of same type as input, shape (filter_height, filter_width, in_channels, out_channels)
-            strides: list of ints, the stride of the sliding window for each dimension of input
-            padding: "SAME" or "VALID"
-        Example:
-            x_in = np.array([[
-                [[2], [1], [2], [0], [1]],
-                [[1], [3], [2], [2], [3]],
-                [[1], [1], [3], [3], [0]],
-                [[2], [2], [0], [1], [1]],
-                [[0], [0], [3], [1], [2]], ]])
-            kernel_in = np.array([
-                [ [[2, 0.1]], [[3, 0.2]] ],
-                [ [[0, 0.3]],[[1, 0.4]] ], ])
-            x = tf.constant(x_in, dtype=tf.float32)
-            kernel = tf.constant(kernel_in, dtype=tf.float32)
-            tf.nn.conv2d(x, kernel, strides=[1, 1, 1, 1], padding='VALID')
-    """
-
-    kernel_in = np.random.randn(1, 11, N_CHANNELS, N_FILTERS)
-    kernel = tf.constant(kernel_in, dtype='float32')
-    sess = tf.compat.v1.Session()
-    with sess.as_default():
-      cNet = tf.nn.conv2d(cData.T[None,None,:,:].astype(np.float32), kernel, strides=[1, 1, 1, 1], padding="VALID")
-      cNet = tf.nn.relu(cNet)
-      cEval = cNet.eval()
-
-      sNet = tf.nn.conv2d(sData.T[None,None,:,:].astype(np.float32), kernel, strides=[1, 1, 1, 1], padding="VALID")
-      sNet = tf.nn.relu(sNet)
-      sEval = sNet.eval()
-
-      gNet = tf.nn.conv2d(np.random.randn(1,1,N_SAMPLES,N_CHANNELS).astype(np.float32), kernel, strides=[1, 1, 1, 1], padding="VALID")
-      gNet = tf.nn.relu(gNet)
-
-      style_features = np.reshape(sEval, (-1, N_FILTERS))
-      g_features = np.reshape(gNet.eval(), (-1, N_FILTERS))
-      
-      opt = tf.optimizers.Adam(learning_rate=0.02, beta_1=0.99, epsilon=1e-1)
-      x = tf.Variable(np.zeros((1,1, N_SAMPLES, N_CHANNELS)))
-
-      print("gram calculation complete")
-      content_loss = CONTENT_WEIGHT * contentLoss(cEval,gNet.eval())
-      print("content loss calculation complete")
-      style_loss = STYLE_WEIGHT * styleLoss(gramMatrix(style_features),gramMatrix(g_features),N_CHANNELS,N_SAMPLES)
-      print("style loss calculation complete")
-      total_loss =  tf.cast(style_loss,content_loss.dtype) + content_loss # Reference: https://stackoverflow.com/questions/35725513/tensorflow-cast-a-float64-tensor-to-float32
-      print("loss calculation complete")
-      print(total_loss.eval())
-           
-
-
-
-      opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+    # Setup gradients or use K.gradients().
+    grads = K.gradients(loss, a_G)
+    kFunction = K.function([a_G], [loss] + grads)
+    evaluator = Evaluator(kFunction)
+    x = np.zeros((1,1, N_CHANNELS, N_SAMPLES))
+    print("   Beginning transfer.")
+    # Train the Model
+    for epoch in range(1, num_epochs + 1):
+        if epoch % 1 == 0:
+          print(str(epoch)+"/"+str(num_epochs))
+        res = scipy.optimize.fmin_l_bfgs_b(evaluator.loss, x.flatten(), fprime=evaluator.grads, maxfun=500)
+        x = res[0].reshape((1,1, N_CHANNELS, N_SAMPLES))
+    return x
     
-      sess.run(tf.compat.v1.initialize_all_variables())
-      print('Started optimization.')
-      opt.minimize(sess, x)
-      print('Final loss:')
-      print(total_loss.eval())
-      result = x.eval()
-
 
 #=========================<Main>================================================
 
 def main():
-    print("Starting style transfer program.")
-    raw = getRawData()                                  #TODO: Get raw Data of two audio
-    cData = preprocessData(raw[0])   # Content image.   #TODO: Preprocess Data of Content Audio
-    sData = preprocessData(raw[1])   # Style image.     #TODO: Preprocess Data of Style Audio 
-    styleTransfer(cData, sData, raw[0][1], raw[1][1])
-    print("Done. Goodbye.")
+    print("Starting audio style transfer program.")
+    a_content, a_style, N_SAMPLES, sr = preprocessing(content_video, style_video)
+    x = styleTransfer(a_content, a_style, N_SAMPLES)
     
-
+    OUTPUT_FILENAME='orginal.wav'
+    spectrum2wav(x[0,0], sr, OUTPUT_FILENAME)
+    print("audio conversion complete")
+    plt_spectrum(a_content, 'Content_spectrum')
+    plt_spectrum(a_style, 'Style_spectrum')
+    a = np.zeros_like(a_content)
+    a[:N_CHANNELS,:] = np.exp(x[0,0]) - 1
+    plt_spectrum(a, 'Gen_spectrum')
 
 if __name__ == "__main__":
     main()
