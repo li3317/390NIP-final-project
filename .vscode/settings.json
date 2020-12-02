@@ -1,6 +1,0 @@
-{
-    "jupyter.jupyterServerType": "remote",
-    "python.linting.pylintEnabled": false,
-    "python.linting.pycodestyleEnabled": true,
-    "python.linting.enabled": false
-}
